@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>收藏视频工具箱 v0.4</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header>
+  <h1>收藏视频工具箱 <small id="ver">v0.4 核心版 · 本地运行</small></h1>
+  <div class="stats" id="stats"></div>
+</header>
+
+<div class="toolbar">
+  <div class="trow trow1">
+    <input type="search" id="q" placeholder="搜简介或作者…" />
+    <select id="author"><option value="">全部作者</option></select>
+    <select id="sort" title="排序方式与方向（收藏顺序＝平台收藏的先后）">
+      <option value="fav_seq:desc" selected>收藏顺序 · 倒序（新→旧）</option>
+      <option value="fav_seq:asc">收藏顺序 · 正序（旧→新）</option>
+      <option value="duration:desc">时长 · 长→短</option>
+      <option value="duration:asc">时长 · 短→长</option>
+      <option value="author_name:asc">作者 · A→Z</option>
+      <option value="author_name:desc">作者 · Z→A</option>
+      <option value="first_seen:desc">入库时间 · 新→旧</option>
+    </select>
+    <select id="month" title="按入库月份 / 发布月份筛选">
+      <option value="all">全部时间</option>
+    </select>
+    <select id="cat" title="按内容大类筛选">
+      <option value="all">全部大类</option>
+    </select>  </div>
+  <div class="trow trow2">
+    <select id="arch" title="视图：归档是本地标记，不影响平台收藏">
+      <option value="hide" selected>未归档</option>
+      <option value="only">已归档</option>
+      <option value="all">全部</option>
+      <option value="missing">已失效</option>
+    </select>
+    <select id="collectTarget" title="本次抓取/更新的条数">
+      <option value="100" selected>常规增量 · 100 条</option>
+      <option value="10">10 条</option>
+      <option value="50">50 条</option>
+      <option value="250">250 条</option>
+      <option value="1000">1000 条</option>
+      <option value="-1">全部（完整重扫·上限3000）</option>
+    </select>
+    <div class="btnwrap">
+      <button class="btn primary" id="collectBtn">抓取 / 更新收藏</button>
+      <button class="btn" id="refresh">刷新</button>
+    </div>
+    <div class="seg">
+      <button id="viewGrid" class="on">封面</button>
+      <button id="viewTable">表格</button>
+    </div>
+    <div class="selwrap">
+      <label class="selinfo"><input type="checkbox" id="selAll" class="rowsel" /> 全选本页</label>
+      <div class="selinfo">已选 <b id="selCount">0</b> 条</div>
+    </div>
+  </div>
+  <div class="cstatus" id="collectStatus"></div>
+</div>
+
+<div class="notice hidden" id="missingNotice"></div>
+
+<main>
+  <div id="grid" class="grid"></div>
+  <div id="tableWrap" class="hidden"></div>
+  <div id="pager" class="pager"></div>
+</main>
+
+<div class="actionbar empty" id="actionbar">
+  <span class="selinfo">已选 <b id="selCount2">0</b> 条</span>
+  <button class="btn primary" id="expCsv">导出链接 CSV</button>
+  <button class="btn" id="expMd">导出 Markdown</button>
+  <button class="btn" id="copyLinks">复制长链</button>
+  <button class="btn" id="archBtn">归档选中</button>
+  <button class="btn" id="dlBtn" disabled title="下一版开放">批量下载（待开放）</button>
+  <div class="hint">归档＝本地标记，平台收藏一条不动，随时可撤销</div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
