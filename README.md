@@ -1,7 +1,5 @@
 # 收藏视频工具箱 · 本地收藏管理
 
-[![smoke](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml/badge.svg)](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml)
-
 ![筛选界面：类目 × 月份 × 收藏顺序，卡片式列表](./docs/img/favtool-demo.png)
 
 **把我自己 1794 条收藏、1156 个作者，做成一个能筛选、能归档、能导出的本地工具。**
