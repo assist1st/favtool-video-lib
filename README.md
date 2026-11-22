@@ -1,6 +1,6 @@
 # 收藏视频工具箱 · 本地收藏管理
 
-[![smoke](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml/badge.svg)](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml)
+[![smoke](https://github.com/assist1st/favtool-video-lib/actions/workflows/smoke.yml/badge.svg)](https://github.com/assist1st/favtool-video-lib/actions/workflows/smoke.yml)
 
 ![筛选界面：类目 × 月份 × 收藏顺序，卡片式列表](./docs/img/favtool-demo.png)
 
@@ -115,4 +115,4 @@ LICENSE             代码 MIT
 
 ---
 
-首发于 github.com/ass1st/favtool-video-lib · 2026-11
+首发于 github.com/assist1st/favtool-video-lib · 2026-11
