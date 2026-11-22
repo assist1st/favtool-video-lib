@@ -11,8 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import covers, db
-from .config import (APP_VERSION, BASE_URL, COVERS_DIR, EXPORTS_DIR, HOST,
-                     PORT, ROOT, WEB_DIR)
+from .config import (APP_VERSION, BASE_URL, COVERS_DIR, DB_PATH, EXPORTS_DIR,
+                     HOST, PORT, ROOT, WEB_DIR)
 from .runner import pid_alive, read_status, reset_status
 
 app = FastAPI(title="收藏视频工具箱", version=APP_VERSION)
@@ -39,6 +39,19 @@ def _reset_stale_status():
             reset_status("上次任务已中断")
     except Exception:
         pass
+
+
+@app.on_event("startup")
+def _seed_demo():
+    """demo 模式：首次启动灌入示例数据（40 条虚构条目），不碰真实库。"""
+    try:
+        from .demo_seed import seed_if_empty
+
+        n = seed_if_empty()
+        if n:
+            print(f"[demo] 已灌入 {n} 条示例数据：{DB_PATH}", flush=True)
+    except Exception as exc:      # demo 只是兜底展示，失败不应拖垮服务
+        print(f"[demo] 灌数据失败：{exc}", flush=True)
 
 
 @app.get("/")

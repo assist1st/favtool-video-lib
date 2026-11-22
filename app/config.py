@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +10,11 @@ ROOT = Path(sys.executable).resolve().parent if FROZEN else BUNDLE_DIR
 APP_DIR = BUNDLE_DIR / "app"
 WEB_DIR = APP_DIR / "web"
 DATA_DIR = ROOT / "data"
-DB_PATH = DATA_DIR / "fav.db"
+
+# demo 模式（--demo）：用内置示例数据、独立数据库、独立端口跑一遍完整界面，
+# 不触碰真实库，也不需要平台适配器。给「克隆下来想看看长什么样」的人用。
+DEMO = os.environ.get("FAVTOOL_DEMO") == "1"
+DB_PATH = DATA_DIR / ("demo.db" if DEMO else "fav.db")
 COVERS_DIR = DATA_DIR / "covers"
 EXPORTS_DIR = DATA_DIR / "exports"
 DOWNLOADS_DIR = ROOT / "downloads"
@@ -21,7 +26,7 @@ for _d in (DATA_DIR, COVERS_DIR, EXPORTS_DIR, DOWNLOADS_DIR, LOGS_DIR, BROWSER_P
 
 APP_VERSION = "0.2-core"
 HOST = "127.0.0.1"
-PORT = 8765
+PORT = int(os.environ.get("FAVTOOL_PORT", "8765"))   # demo 可换端口，避免和正在用的真实实例抢
 BASE_URL = f"http://{HOST}:{PORT}"
 
 # 「全部」并不等于无限：单次扫描的安全上限，防止收藏异常增长或分页失控时把内存吃爆

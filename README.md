@@ -1,5 +1,9 @@
 # 收藏视频工具箱 · 本地收藏管理
 
+[![smoke](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml/badge.svg)](https://github.com/ass1st/favtool-video-lib/actions/workflows/smoke.yml)
+
+![筛选界面：类目 × 月份 × 收藏顺序，卡片式列表](./docs/img/favtool-demo.png)
+
 **把我自己 1794 条收藏、1156 个作者，做成一个能筛选、能归档、能导出的本地工具。**
 
 起因很具体：收藏夹只进不出，越攒越吃灰。想找一条三年前存的东西，只能一直往下滑；滑到最后放弃，等于那条视频从来没存过。
@@ -68,13 +72,32 @@ app/web/             → 前端（单页，无构建）
 
 ## 运行
 
+**两条路径，demo 模式不需要平台适配器就能跑起来看界面。**
+
 ```bash
 pip install -r requirements.txt
-python launcher.py
-# 浏览器会自动打开 http://127.0.0.1:8765
+
+# 1) 只看界面 / 跑通筛选、归档、导出：demo 模式
+python launcher.py --demo
+# 内置 40 条虚构示例（四类目、六个月、含 3 条已归档），
+# 独立数据库 data/demo.db，端口 8788，不联网、不碰任何真实收藏
+
+# 2) 接自己的账号：需要自己实现一个适配器
+python launcher.py            # 起服务
+python launcher.py --collect  # 抓取本人收藏
 ```
 
-需要 `app/collector/douyin.py`（未分发）才能采集；只读代码、看表结构、跑分类器不需要。
+`--demo` 走的还是同一套 `db` / `main` / `web`，只是换了一份示例数据与端口——所以它演示的就是真实界面，不是另做的假页面。
+
+采集路径需要 `app/collector/douyin.py`（未分发）；只读代码、看表结构、跑分类器、跑 demo 都不需要。
+
+## 测试
+
+```bash
+python -m unittest discover -s tests -v     # 规则分类器 8 条用例，零依赖
+```
+
+CI（`.github/workflows/smoke.yml`）只做编译检查和分类器单测，不安装 FastAPI / Playwright——适配器不在仓库里，装全依赖既慢也没意义。
 
 ## 目录
 
