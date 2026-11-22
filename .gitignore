@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.pyc
+
+# 本地数据：数据库、封面缓存、导出、日志、浏览器用户目录
+data/
+downloads/
+logs/
+*.db
+*.db-journal
+*.db.bak
+*.sqlite
+*.sqlite3
+
+# 平台适配器不随仓库分发
+app/collector/douyin.py
+app/collector/__pycache__/
+
+# 打包产物
+build/
+dist/
+发布/
+*.spec
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
