@@ -104,7 +104,7 @@ python launcher.py --collect  # 抓取本人收藏
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v     # 21 条用例（分类器 8 · 状态机 7 · 存取层 6），零依赖
+python -m unittest discover -s tests -v     # 23 条用例（分类器 8 · 状态机 7 · 存取层 8），零依赖
 ```
 
 CI（`.github/workflows/smoke.yml`）只做编译检查和分类器单测，不安装 FastAPI / Playwright——适配器不在仓库里，装全依赖既慢也没意义。

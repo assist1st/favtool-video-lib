@@ -171,25 +171,6 @@ def upsert_items(items, folder="默认收藏", reseq=False):
     return new_count, updated
 
 
-def clear_seq_not_in(ids, folder="默认收藏"):
-    """完整重扫后清掉没再出现的条目的收藏顺序，避免它们靠旧序号排在前面。
-
-    只清 fav_seq，不改 status——消失属于平台侧行为，工具只做提示。
-    """
-    if not ids:
-        return 0
-    conn = connect()
-    marks = ",".join("?" for _ in ids)
-    n = conn.execute(
-        f"UPDATE fav_item SET fav_seq=NULL WHERE folder_name=? AND status='active' "
-        f"AND aweme_id NOT IN ({marks})",
-        [folder] + list(ids),
-    ).rowcount
-    conn.commit()
-    conn.close()
-    return n
-
-
 def list_items(q="", author="", sort="first_seen", order="desc", archive="hide"):
     # 两张表都可能有同名列，排序必须限定表别名
     sort_cols = {
@@ -221,8 +202,11 @@ def list_items(q="", author="", sort="first_seen", order="desc", archive="hide")
         sql += "AND f.status='active' "
     params = []
     if q:
-        sql += "AND (a.desc LIKE ? OR a.author_name LIKE ?) "
-        params += [f"%{q}%", f"%{q}%"]
+        # 用户输入里的 % _ \ 会被当成 LIKE 通配符，先转义再用 ESCAPE 声明，
+        # 否则搜「100%」会变成「任意内容」，搜「_」会匹配到几乎所有条目。
+        like = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        sql += "AND (a.desc LIKE ? ESCAPE '\\' OR a.author_name LIKE ? ESCAPE '\\') "
+        params += [f"%{like}%", f"%{like}%"]
     if author:
         sql += "AND a.author_name = ? "
         params.append(author)
