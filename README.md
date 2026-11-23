@@ -16,7 +16,7 @@
 - 分类：技能学习 / 影视解说 / 生活消费 / 情绪共鸣 + 未分类（规则分类器，窄类优先）
 - 筛选：类目 × 月份（入库 `first_seen` / 发布 `create_time` 双口径）× 正倒序，纯前端组合过滤
 - 本地归档：只标本地 `archived`，不碰平台的收藏状态
-- 批量导出 CSV，字段可自选
+- 批量导出：CSV 链接表 / Markdown 清单，两种格式，字段固定
 
 ## 架构
 
@@ -25,7 +25,7 @@ launcher.py          → 起本地服务 + 打开浏览器
 app/main.py          → FastAPI 路由（items / stats / authors / export / archive）
 app/db.py            → SQLite：建表、迁移、查询、分类打标
 app/runner.py        → 采集编排：起浏览器、登录态检查、状态回写、存活检测
-app/collector/base.py → 适配器契约（五个方法，核心逻辑不感知平台差异）
+app/collector/base.py → 适配器契约（四个方法 + 七个约定属性，核心逻辑不感知平台差异）
 app/classify.py      → 规则分类器
 app/covers.py        → 封面按需下载与缓存
 app/web/             → 前端（单页，无构建）
@@ -53,7 +53,7 @@ flowchart LR
 
 ### 二 · 1794 条的渲染切分
 
-不分页时切视图会明显卡顿。改成 **100 条/页** + 点选只切该卡样式、不重建整页 + 归档视图改为一次取 `archive=all` 后前端过滤（切换不再发请求）。
+不分页时切视图会明显卡顿。改成 **100 条/页** + 点选只切该卡样式、不重建整页 + 归档视图改为一次取 `archive=every` 后前端过滤（切换不再发请求）。
 
 ### 三 · 用归档代替取消收藏
 
@@ -104,7 +104,7 @@ python launcher.py --collect  # 抓取本人收藏
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v     # 规则分类器 8 条用例，零依赖
+python -m unittest discover -s tests -v     # 21 条用例（分类器 8 · 状态机 7 · 存取层 6），零依赖
 ```
 
 CI（`.github/workflows/smoke.yml`）只做编译检查和分类器单测，不安装 FastAPI / Playwright——适配器不在仓库里，装全依赖既慢也没意义。

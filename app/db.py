@@ -80,16 +80,20 @@ def set_archived(ids, archived=True):
     if not ids:
         return 0
     conn = connect()
-    marks = ",".join("?" for _ in ids)
-    conn.execute(
-        f"UPDATE fav_item SET archived=? WHERE aweme_id IN ({marks})",
-        [1 if archived else 0] + list(ids),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        marks = ",".join("?" for _ in ids)
+        # 返回真正被改动的行数：ids 里混进库里没有的 id 时，
+        # 界面提示的「已归档 N 条」不能比实际多。
+        n = conn.execute(
+            f"UPDATE fav_item SET archived=? WHERE aweme_id IN ({marks})",
+            [1 if archived else 0] + list(ids),
+        ).rowcount
+        conn.commit()
+    finally:
+        conn.close()
     for aid in ids:
         log("archive" if archived else "unarchive", aid, "ok")
-    return len(ids)
+    return n
 
 
 def _now():
@@ -104,62 +108,66 @@ def upsert_items(items, folder="默认收藏", reseq=False):
     增量更新只给新条目接在当前最大值之后，不动老条目的顺序。
     """
     conn = connect()
-    now = _now()
-    new_count = updated = 0
-    base = conn.execute("SELECT COALESCE(MAX(fav_seq), 0) FROM fav_item").fetchone()[0]
-    total = len(items)
-    seq = base
-    for i, it in enumerate(items):
-        existed = conn.execute(
-            "SELECT 1 FROM aweme WHERE aweme_id=?", (it.aweme_id,)
-        ).fetchone()
-        conn.execute(
-            """INSERT INTO aweme(aweme_id, desc, author_name, author_id, duration,
-                                cover_url, cover_local, play_url, create_time,
-                                category, first_seen)
-               VALUES(?,?,?,?,?,?,?,?,?,?,?)
-               ON CONFLICT(aweme_id) DO UPDATE SET
-                 desc=excluded.desc,
-                 author_name=excluded.author_name,
-                 author_id=excluded.author_id,
-                 duration=excluded.duration,
-                 cover_url=excluded.cover_url,
-                 cover_local=COALESCE(excluded.cover_local, aweme.cover_local),
-                 play_url=excluded.play_url,
-                 create_time=excluded.create_time,
-                 category=excluded.category""",
-            (it.aweme_id, it.desc, it.author_name, it.author_id, it.duration_ms,
-             it.cover_url, it.cover_local, it.play_url, it.create_time,
-             classify(it.desc, it.author_name)[0], now),
-        )
-        fav = conn.execute(
-            "SELECT fav_seq FROM fav_item WHERE aweme_id=? AND folder_name=?",
-            (it.aweme_id, folder),
-        ).fetchone()
-        if reseq and fav is not None:
+    try:
+        now = _now()
+        new_count = updated = 0
+        base = conn.execute("SELECT COALESCE(MAX(fav_seq), 0) FROM fav_item").fetchone()[0]
+        total = len(items)
+        seq = base
+        for i, it in enumerate(items):
+            existed = conn.execute(
+                "SELECT 1 FROM aweme WHERE aweme_id=?", (it.aweme_id,)
+            ).fetchone()
             conn.execute(
-                "UPDATE fav_item SET last_seen=?, fav_seq=? WHERE aweme_id=? AND folder_name=?",
-                (now, total - i, it.aweme_id, folder),
+                """INSERT INTO aweme(aweme_id, desc, author_name, author_id, duration,
+                                    cover_url, cover_local, play_url, create_time,
+                                    category, first_seen)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(aweme_id) DO UPDATE SET
+                     desc=excluded.desc,
+                     author_name=excluded.author_name,
+                     author_id=excluded.author_id,
+                     duration=excluded.duration,
+                     cover_url=excluded.cover_url,
+                     cover_local=COALESCE(excluded.cover_local, aweme.cover_local),
+                     play_url=excluded.play_url,
+                     create_time=excluded.create_time,
+                     category=excluded.category""",
+                (it.aweme_id, it.desc, it.author_name, it.author_id, it.duration_ms,
+                 it.cover_url, it.cover_local, it.play_url, it.create_time,
+                 classify(it.desc, it.author_name)[0], now),
             )
-        elif fav is None:
-            seq += 1
-            newseq = total - i if reseq else seq
-            conn.execute(
-                "INSERT INTO fav_item(aweme_id, folder_name, first_seen, last_seen, status, fav_seq)"
-                " VALUES(?,?,?,?, 'active', ?)",
-                (it.aweme_id, folder, now, now, newseq),
-            )
-        else:
-            conn.execute(
-                "UPDATE fav_item SET last_seen=? WHERE aweme_id=? AND folder_name=?",
-                (now, it.aweme_id, folder),
-            )
-        if existed:
-            updated += 1
-        else:
-            new_count += 1
-    conn.commit()
-    conn.close()
+            fav = conn.execute(
+                "SELECT fav_seq FROM fav_item WHERE aweme_id=? AND folder_name=?",
+                (it.aweme_id, folder),
+            ).fetchone()
+            if reseq and fav is not None:
+                conn.execute(
+                    "UPDATE fav_item SET last_seen=?, fav_seq=? WHERE aweme_id=? AND folder_name=?",
+                    (now, total - i, it.aweme_id, folder),
+                )
+            elif fav is None:
+                seq += 1
+                newseq = total - i if reseq else seq
+                conn.execute(
+                    "INSERT INTO fav_item(aweme_id, folder_name, first_seen, last_seen, status, fav_seq)"
+                    " VALUES(?,?,?,?, 'active', ?)",
+                    (it.aweme_id, folder, now, now, newseq),
+                )
+            else:
+                conn.execute(
+                    "UPDATE fav_item SET last_seen=? WHERE aweme_id=? AND folder_name=?",
+                    (now, it.aweme_id, folder),
+                )
+            if existed:
+                updated += 1
+            else:
+                new_count += 1
+        conn.commit()
+    finally:
+        # 无论正常结束还是中途抛异常，连接都要关：漏关的话这个连接会一直
+        # 占着 WAL 写锁，界面上的读和写都被卡住，任务也会卡在半路。
+        conn.close()
     return new_count, updated
 
 
@@ -233,14 +241,16 @@ def mark_missing(ids):
     if not ids:
         return 0
     conn = connect()
-    marks = ",".join("?" for _ in ids)
-    n = conn.execute(
-        f"UPDATE fav_item SET status='missing', archived=0, fav_seq=NULL "
-        f"WHERE aweme_id IN ({marks}) AND status='active'",
-        list(ids),
-    ).rowcount
-    conn.commit()
-    conn.close()
+    try:
+        marks = ",".join("?" for _ in ids)
+        n = conn.execute(
+            f"UPDATE fav_item SET status='missing', archived=0, fav_seq=NULL "
+            f"WHERE aweme_id IN ({marks}) AND status='active'",
+            list(ids),
+        ).rowcount
+        conn.commit()
+    finally:
+        conn.close()
     return n
 
 
@@ -249,16 +259,18 @@ def purge(ids):
     if not ids:
         return 0
     conn = connect()
-    marks = ",".join("?" for _ in ids)
-    n = conn.execute(
-        f"DELETE FROM fav_item WHERE aweme_id IN ({marks}) AND status='missing'",
-        list(ids),
-    ).rowcount
-    conn.execute(
-        "DELETE FROM aweme WHERE aweme_id NOT IN (SELECT aweme_id FROM fav_item)"
-    )
-    conn.commit()
-    conn.close()
+    try:
+        marks = ",".join("?" for _ in ids)
+        n = conn.execute(
+            f"DELETE FROM fav_item WHERE aweme_id IN ({marks}) AND status='missing'",
+            list(ids),
+        ).rowcount
+        conn.execute(
+            "DELETE FROM aweme WHERE aweme_id NOT IN (SELECT aweme_id FROM fav_item)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
     return n
 
 
@@ -329,19 +341,23 @@ def active_ids():
 def cap_cover_local(aweme_id, filename):
     """记下封面已经落到本地，下次直接用文件、不再联网。"""
     conn = connect()
-    conn.execute(
-        "UPDATE aweme SET cover_local=? WHERE aweme_id=? AND coalesce(cover_local,'')=''",
-        (filename, aweme_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "UPDATE aweme SET cover_local=? WHERE aweme_id=? AND coalesce(cover_local,'')=''",
+            (filename, aweme_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def log(action, aweme_id, result, detail=""):
     conn = connect()
-    conn.execute(
-        "INSERT INTO op_log(ts, action, aweme_id, result, detail) VALUES(?,?,?,?,?)",
-        (_now(), action, aweme_id, result, detail),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "INSERT INTO op_log(ts, action, aweme_id, result, detail) VALUES(?,?,?,?,?)",
+            (_now(), action, aweme_id, result, detail),
+        )
+        conn.commit()
+    finally:
+        conn.close()

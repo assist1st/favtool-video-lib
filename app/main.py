@@ -12,8 +12,8 @@ from pydantic import BaseModel
 
 from . import covers, db
 from .config import (APP_VERSION, BASE_URL, COVERS_DIR, DB_PATH, EXPORTS_DIR,
-                     HOST, PORT, ROOT, WEB_DIR)
-from .runner import pid_alive, read_status, reset_status
+                     HOST, LOGS_DIR, PORT, ROOT, WEB_DIR)
+from .runner import Status, pid_alive, raw_status, read_status, reset_status
 
 app = FastAPI(title="收藏视频工具箱", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
@@ -33,9 +33,16 @@ class CollectReq(BaseModel):
 
 @app.on_event("startup")
 def _reset_stale_status():
-    """程序启动时，把上次被中断任务的残影清掉，否则按钮会被永久锁死。"""
+    """程序启动时，把上次被中断任务的残影清掉，否则按钮会被永久锁死。
+
+    只有确认采集进程已经不在了才清：服务重启时，采集子进程可能还活着，
+    这时候清状态等于把按钮解锁，用户就能再开一个任务，
+    两个浏览器抢同一个 profile 目录，直接冲突失败。
+    """
     try:
-        if read_status().get("state") in ("starting", "waiting_login", "collecting"):
+        st = raw_status()
+        if st.get("state") in ("starting", "waiting_login", "collecting") \
+                and not pid_alive(st.get("pid")):
             reset_status("上次任务已中断")
     except Exception:
         pass
@@ -157,10 +164,18 @@ def collect(req: CollectReq):
         cmd = [sys.executable, str(ROOT / "launcher.py"),
                "--collect", "--target", str(target)] + extra
     flags = 0x08000000 if sys.platform == "win32" else 0
-    subprocess.Popen(
-        cmd, cwd=str(ROOT), creationflags=flags,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
+    # 子进程的 stderr 别丢：以前是 DEVNULL，采集器一崩就什么都看不见，
+    # 界面上只剩一句「上次任务已中断」，连崩在哪都不知道。
+    err_log = LOGS_DIR / f"collect-stderr-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+    with open(err_log, "ab") as err:
+        proc = subprocess.Popen(
+            cmd, cwd=str(ROOT), creationflags=flags,
+            stdout=subprocess.DEVNULL, stderr=err,
+        )
+    # 立刻把子进程 pid 写进状态文件：不然从 spawn 到子进程第一次写状态之间，
+    # 状态还是「空闲」，用户手快再点一次就会开出第二个采集任务，
+    # 两个浏览器抢同一个 profile 目录，直接冲突失败。
+    Status().set(state="starting", count=0, msg="正在启动浏览器", pid=proc.pid)
     return {"ok": True, "state": "starting"}
 
 
@@ -180,7 +195,13 @@ def export_links(req: ExportReq):
         lines = ["# 收藏视频链接清单", ""]
         for i, r in enumerate(rows, 1):
             link = f"https://www.douyin.com/video/{r['aweme_id']}"
-            lines.append(f"{i}. [{r['desc'] or r['aweme_id']}]({link}) — @{r['author_name']}")
+            # 简介是平台上的自由文本：带方括号会截断链接语法，带换行会把一条
+            # 拆成多条，先转义再写，导出的 md 才能正常点开。
+            desc = (r["desc"] or r["aweme_id"] or "").replace("\\", "\\\\")
+            desc = desc.replace("[", "\\[").replace("]", "\\]")
+            desc = " ".join(desc.split())
+            author = r["author_name"] or "未知作者"
+            lines.append(f"{i}. [{desc}]({link}) — @{author}")
         (EXPORTS_DIR / name).write_text("\n".join(lines), encoding="utf-8")
     else:
         name = f"收藏链接-{ts}.csv"

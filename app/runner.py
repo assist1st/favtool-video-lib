@@ -31,13 +31,17 @@ class Status:
             "ts": datetime.datetime.now().isoformat(timespec="seconds"),
         }
 
-    def set(self, state=None, count=None, msg=None):
+    def set(self, state=None, count=None, msg=None, pid=None):
         if state is not None:
             self.data["state"] = state
         if count is not None:
             self.data["count"] = count
         if msg is not None:
             self.data["msg"] = msg
+        if pid is not None:
+            # pid 是「任务是不是真在跑」的唯一判据，必须写准：
+            # 谁在跑任务，状态里就记谁的 pid。
+            self.data["pid"] = int(pid)
         self.data["ts"] = datetime.datetime.now().isoformat(timespec="seconds")
         try:
             STATUS_FILE.write_text(
@@ -47,22 +51,32 @@ class Status:
             pass
 
 
-def read_status():
+def raw_status():
+    """只读状态文件，不做存活判断（判断「是不是残影」时用）。"""
     if not STATUS_FILE.exists():
         return {"state": "idle", "count": 0, "msg": ""}
     try:
-        data = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+        return json.loads(STATUS_FILE.read_text(encoding="utf-8"))
     except Exception:
         return {"state": "idle", "count": 0, "msg": ""}
-    # 任务被强杀会留下「进行中」的残影，超时即视为中断
+
+
+def read_status():
+    """读状态，并判断任务是不是真的在跑——只看进程活不活，不看时间戳。
+
+    以前靠「超过 20 分钟就算中断」来判断，两头都会错：
+    1. 任务其实还在跑（登录要等 15 分钟，再加上扫描，很容易超过 20 分钟），
+       却按残影处理，界面把按钮解锁，用户能再开一个采集任务，
+       两个浏览器抢同一个 profile 目录，直接冲突失败；
+    2. 任务刚被强杀、状态文件还不到 20 分钟，又被当成「还在跑」，
+       界面上的按钮被永久锁死，只能干等。
+    进程在不在是唯一可信的判据：进程没了，任务就一定已经结束了。
+    """
+    data = raw_status()
     if data.get("state") in ("starting", "waiting_login", "collecting"):
-        try:
-            age = (datetime.datetime.now()
-                   - datetime.datetime.fromisoformat(data.get("ts", ""))).total_seconds()
-            if age > 1200:
-                return {"state": "idle", "count": 0, "msg": "上次任务已中断"}
-        except Exception:
-            pass
+        if pid_alive(data.get("pid")):
+            return data
+        return {"state": "idle", "count": 0, "msg": "上次任务已中断"}
     return data
 
 
@@ -112,6 +126,25 @@ def run_collect(target=0, headless=False, channel="msedge", login_timeout=900,
     report = {"ts": ts, "ok": False, "items": 0, "target": target,
               "incremental": incremental}
 
+    def _finish(code):
+        """所有出口都走这里：成功和失败都要把报告落盘。
+
+        以前只有正常跑完才写 probe-report.json 和日志。可浏览器起不来、
+        适配器缺失、登录超时这几种最需要看报告的情况，反倒什么都没有，
+        出了事只能对着界面上一句「启动失败」猜。
+        """
+        try:
+            (DATA_DIR / "exports").mkdir(parents=True, exist_ok=True)
+            (DATA_DIR / "exports" / "probe-report.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            (LOGS_DIR / f"collect-{ts}.json").write_text(
+                json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except Exception:
+            pass
+        return code
+
     def _launch(headless_flag):
         return p.chromium.launch_persistent_context(
             user_data_dir=str(BROWSER_PROFILE),
@@ -123,18 +156,28 @@ def run_collect(target=0, headless=False, channel="msedge", login_timeout=900,
             + ([] if headless_flag else ["--start-maximized"]),
         )
 
-    with sync_playwright() as p:
+    try:
+        pw = sync_playwright()
+    except Exception as e:
+        st.set(state="error", msg=f"浏览器启动失败：{e}")
+        return _finish(1)
+
+    with pw as p:
         try:
             ctx = _launch(True)
         except Exception as e:
             st.set(state="error", msg=f"浏览器启动失败：{e}")
-            return 1
+            return _finish(1)
 
         if DouyinAdapter is None:
             st.set(state="error", msg="平台适配器未就位：本仓库不含 app/collector/douyin.py，见 README「边界」")
-            return 1
+            return _finish(1)
 
-        ad = DouyinAdapter()
+        try:
+            ad = DouyinAdapter()
+        except Exception as e:
+            st.set(state="error", msg=f"适配器初始化失败：{e}")
+            return _finish(1)
 
         def bind(c):
             ad.context = c
@@ -180,7 +223,7 @@ def run_collect(target=0, headless=False, channel="msedge", login_timeout=900,
             st.set(state="waiting_login", msg="正在确认登录态（已登录则全程无窗口）")
             if not ad.wait_login(ctx, login_timeout):
                 st.set(state="error", msg="登录超时，请重试")
-                return 2
+                return _finish(2)
 
             mode = "增量" if incremental else "完整重扫"
             limit = f"上限 {target} 条" if target else f"最多 {MAX_SCAN} 条（安全上限）"
@@ -216,7 +259,10 @@ def run_collect(target=0, headless=False, channel="msedge", login_timeout=900,
                     missing_n = db.mark_missing(missing)
                     report["missing_count"] = missing_n
                 except Exception as e:
-                    report["missing_count"] = f"failed: {e}"
+                    # missing_count 保持整数：出错单独放一个字段，
+                    # 否则同一个字段一会儿是数一会儿是串，读报告的代码没法统一处理。
+                    report["missing_count"] = 0
+                    report["missing_error"] = f"{type(e).__name__}: {e}"
 
             if ad.capped:
                 tail = f"（已达安全上限 {MAX_SCAN} 条，剩余未扫）"
@@ -244,15 +290,5 @@ def run_collect(target=0, headless=False, channel="msedge", login_timeout=900,
             except Exception:
                 pass
 
-    try:
-        (DATA_DIR / "exports").mkdir(parents=True, exist_ok=True)
-        (DATA_DIR / "exports" / "probe-report.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        (LOGS_DIR / f"collect-{ts}.json").write_text(
-            json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception:
-        pass
-    return 0 if report.get("ok") else 1
+    return _finish(0 if report.get("ok") else 1)
 
