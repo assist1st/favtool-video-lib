@@ -95,6 +95,16 @@ class TestDb(unittest.TestCase):
         self.assertGreater(rows["a3"], rows["a2"])
         self.assertGreater(rows["a2"], rows["a1"])
 
+    def test_search_treats_percent_as_literal(self):
+        db.upsert_items([Item("a1", desc="涨了 100% 的方法"), Item("a2", desc="普通教程")])
+        hits = [r["aweme_id"] for r in db.list_items(q="100%", archive="every")]
+        self.assertEqual(hits, ["a1"])
+
+    def test_search_treats_underscore_as_literal(self):
+        db.upsert_items([Item("a1", desc="a_b 命名"), Item("a2", desc="axb 命名")])
+        hits = [r["aweme_id"] for r in db.list_items(q="a_b", archive="every")]
+        self.assertEqual(hits, ["a1"])
+
     def test_connection_is_closed_when_upsert_raises(self):
         spies = []
         real_connect = db.connect
