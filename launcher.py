@@ -7,9 +7,14 @@
 import argparse
 import os
 import socket
+import sys
 import threading
 import time
 import webbrowser
+
+# 嵌入式 / 打包（PyInstaller）环境下 sys.path 可能不含脚本目录，显式补一行，
+# 否则后面的 `from app.config import ...` 会报 ModuleNotFoundError。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 
 def port_busy(host, port):

@@ -31,6 +31,16 @@ app/covers.py        → 封面按需下载与缓存
 app/web/             → 前端（单页，无构建）
 ```
 
+```mermaid
+flowchart LR
+    L["launcher.py<br/>本地服务 / 采集入口"] --> R["runner.py<br/>采集编排：登录态、状态回写"]
+    R --> C["collector/base.py<br/>适配器契约（平台适配器不公开）"]
+    C --> D[("SQLite<br/>db.py")]
+    S["demo_seed.py<br/>40 条示例数据"] --> D
+    D --> M["FastAPI<br/>main.py"]
+    M --> W["app/web<br/>单页前端（无构建）"]
+```
+
 核心逻辑与平台解耦：换一个平台，只换 `collector/` 下的适配器，`db` / `main` / `web` 不动。
 
 ## 三个真正花时间的地方
